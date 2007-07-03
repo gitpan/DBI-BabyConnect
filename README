@@ -1,16 +1,12 @@
-DBI-BabyConnect version 0.01
+DBI-BabyConnect version 0.93
 ============================
 
-The README is used to introduce the module and provide instructions on
-how to install the module, any machine dependencies it may have (for
-example C compilers and installed libraries) and any other information
-that should be provided before the module is installed.
+The previous version 0.92 is missing many files and instructions on
+how to use the DBI::BabyConnect. That version was my first module
+to upload to CPAN and it has many bugs. Use version 0.93 instead..
 
-A README file is required for CPAN modules since CPAN extracts the
-README file from a module distribution so that people browsing the
-archive can use it get an idea of the modules uses. It is usually a
-good idea to provide version information here so that people can
-decide whether fixes for the module are worth downloading.
+DBI::BabyConnect version 0.93 is stable and has been tested on
+Linux Fedora with Apache2 MD2. 
 
 INSTALLATION
 
@@ -25,16 +21,17 @@ DEPENDENCIES
 
 This module requires these other modules and libraries:
 
-  blah blah blah
+DBI
+
+GETTING STARTED
+See the file eg/README
+
 
 COPYRIGHT AND LICENCE
 
-Put the correct copyright and licence information here.
-
-Copyright (C) 2007 by root
+Copyright (C) 2007 by Bassem W. Jamaleddine
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.8 or,
 at your option, any later version of Perl 5 you may have available.
-
 

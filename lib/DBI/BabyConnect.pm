@@ -10,11 +10,17 @@ use Time::localtime; # needed for iso_date() function
 
 
 our @ISA = qw();
-our $VERSION = '0.92';
+our $VERSION = '0.93';
 
+#BEGIN{ $0 =~ /(.*)(\\|\/)/; push @INC, $1 if $1; }
 
 # DEPRECATED: THE CONFIGURATION DATA IS READ FROM >>>>>>>>>>.. VS_CONFIG.PM
 #    /usr/lib/perl5/site_perl/5.8/VS_HOME.pm
+#use VS_CONFIG;
+#use constant DBSETTING_FORCE_SINGLESPACE_FOR_EMPTY_STRING => VS_CONFIG::DBSETTING_FORCE_SINGLESPACE_FOR_EMPTY_STRING;
+#my $DATABASE_CONFIGURATION_DIR = VS_CONFIG::DB_CONFIG_DIR;
+#my $SCHEMA_REPOS               = VS_CONFIG::CONFIG_DIR . '/SQL/TABLES';
+
 
 #The following signals have been redefined in the IO Section in this file
 #$SIG{__DIE__} = sub { print STDERR "DIE: $_[0]" };
@@ -27,9 +33,6 @@ our $VERSION = '0.92';
 # info when ending this class
 #use constant PRT_CEND => 0;
 
-#use constant DBSETTING_FORCE_SINGLESPACE_FOR_EMPTY_STRING
-#	=> VS_CONFIG::DBSETTING_FORCE_SINGLESPACE_FOR_EMPTY_STRING;
-#use constant DBSETTING_FORCE_SINGLESPACE_FOR_EMPTY_STRING => 0;
 
 # to monitor the internal state of a BabyConnect object handle (during run time)
 # and setting the state to ISTATE_CRISIS allows to build a logical plan
@@ -92,12 +95,8 @@ my $SKELETON =
 	mysql => SKELETON_MYSQL,
 };
 
-# deprecated reading variable setting from VS_CONFIG.pm
-#use VS_CONFIG;
-#my $DATABASE_CONFIGURATION_DIR = VS_CONFIG::DB_CONFIG_DIR;
-#my $SCHEMA_REPOS               = VS_CONFIG::CONFIG_DIR . '/SQL/TABLES';
 
-# export BABYCONNECT=/p9/PRSS/configuration
+# export BABYCONNECT=/opt/DBI-BabyConnect/configuration
 my $ENV_BABYCONNECT = $ENV{BABYCONNECT};
 $ENV_BABYCONNECT ||= "./configuration";
 
@@ -109,11 +108,11 @@ Cannot read configuration directory: $ENV_BABYCONNECT!
 You may have not set the BABYCONNECT environment variable. You need
 to set and export the environment variable BABYCONNECT to point to the
 directory where your configuration files reside. For example:
-    export BABYCONNECT=/opt/DBI-BabyConnect/configuration
+    export BABYCONNECT=/opt/DBI-BabyConnect-0.93/configuration
 If you are using Apache::BabyConnect then you need to export the
 environment variable prior to loading this module, for example:
-    PerlSetEnv BABYCONNECT /opt/DBI-BabyConnect/configuration
-    PerlRequire /opt/DBI-BabyConnect/startupscripts/babystartup.pl
+    PerlSetEnv BABYCONNECT /opt/DBI-BabyConnect-0.93/configuration
+    PerlRequire /opt/DBI-BabyConnect-0.93/startupscripts/babystartup.pl
 
 Refer to the documentation of this module to understand how the 
 configuration directory is structured.
@@ -280,28 +279,43 @@ sub new {
 	my $class = shift;
 	my $conf = shift;
 
-#	my $debfilename;
-#	my $deblevel;
-#	my $tracing = 0;
-	my %args = @_;
-	if ($args{debhook})
-	{
-#		$debfilename = $args{debfilename};
-#		$deblevel = defined $args{deblevel} ? $args{deblevel} : 2;
-#		$tracing = 1;
+	#my %args = @_;
+
+
+#print STDERR "*** DBI::BabyConnect NEW, ENABLE_CACHING=$ENABLE_CACHING  PERSISTENT_OBJECT_ENABLED=$PERSISTENT_OBJECT_ENABLED  ", caller, "\n";
+
+#my $dbi_connect_method = ($DBI::BabyConnect::connect_via eq "Apache::BabyConnect::connect")
+#	? 'Apache::BabyConnect::connect' : 'connect_cached';
+#use Apache::BabyConnect;
+#if ($DBI::BabyConnect::connect_via eq "Apache::BabyConnect::connect") {
+#	##return $dbi_connect_method($conf,%args);
+#	foreach my $cn (keys %CACHED_CONN) {
+#		if ($cn eq $conf) { 
+#			print STDERR "******************** FOUND A CACHED CONNECTION FOR: $cn\n"; 
+#			return $CACHED_CONN{$conf};
+#		}
+#	}
+#}
+if ($ENABLE_CACHING) {
+	my $s1 = $$ . $conf;
+	foreach (keys %CACHED_CONN) {
+		#print STDERR "[$s1] iCOMPARE\n[$_]\n\n";
+		if ($s1 eq $_) {
+			#print STDERR "******************** FOUND A CACHED CONNECTION FOR: $$ + $conf with DESCRIPTOR ${$$statCC{$$ . $conf}}{descriptor}\n";
+			#print STDERR "****** CACHED CLASS = ${$CACHED_CONN{$$ . $conf}}{class} \n";
+			_statCC($$,$conf);
+			#return $CACHED_CONN{$conf};
+			return ${$CACHED_CONN{$$ . $conf}}{class};
+		}
 	}
+}
+#print STDERR " ****************************** MAKING NEW CONNECTION FOR $conf\n";
+
 
 	my $self = {
-#		__debfilename => $debfilename,
-#		__deblevel => $deblevel ,
-#		__tracing => $tracing,
-		#tracing => 0,
-		#redirect_error_log => 0,
 	};
 
 	bless $self, ref $class || $class ;
-#my $ccc = [caller]; print " @{$ccc} \n";
-#print "$args{debhook}  99999>>>>>>>>>>>>>>>>>>>> $self->{debhook} ++ $self->{level} \n"; exit;
 
 	# We will hold a reference to a hash to cache the configuration data into an object
 	# as this is useful when we need to reconnect() in such a situation where a thread is
@@ -335,11 +349,11 @@ sub new {
 		die __PACKAGE__,"!! ERROR: NO SUCH DATABASE DESCRIPTOR TO ESTABLISH A CONNECTION [$conf]. PROGRAM EXITING.
 
 AS A LAST RESORT OF GETTING A CONNECTION, CANNOT LOCATE AN OBJECT FOR THAT DESCRIPTOR $conf.
-WHEN GETTING A CONNECTION, THE PARAMTER PROVIDED IS VERIFIED IN THE FOLLOWING ORDER:
+WHEN GETTING A CONNECTION, THE PARAMETER PROVIDED IS VERIFIED IN THE FOLLOWING ORDER:
    1- AS AN OBJECT REFERENCE THAT HOLD THE CONNECTION
    2- AS A CONFIGURATION FILE THAT HOLD THE CONNECTION IF SUCH A FILE EXIST
-   3- AS AN IDENTIFIER (ALSO CALLED DESCRIPTOR) TO A DB CONNECTION SAVED IN databases.conf
-   4- AS A LAST RESORT, AS A DESCRIPTOR MAPPED INTO THE ./dbconf/*.conf
+   3- AS AN IDENTIFIER (ALSO CALLED DESCRIPTOR) TO A DB CONNECTION SAVED IN databases.pl
+   4- AS A LAST RESORT, AS A DESCRIPTOR MAPPED INTO THE \$ENV{BABYCONNECT}/dbconf/*.conf
 
 WHEN USING Apache::BabyConnect IT IS RECOMMENDED TO USE THE IDENTIFIER OR DESCRIPTOR AS STRESSED IN (3).
 		
@@ -381,35 +395,6 @@ WHEN USING Apache::BabyConnect IT IS RECOMMENDED TO USE THE IDENTIFIER OR DESCRI
 	delete $dbiHandleAttr{AutoRollback};
 	#my $dbiconnection = DBI->connect($dbipath, $$dbiParams{UserName},$$dbiParams{Password}, 
 	#	{ RaiseError => $$dbiParams{RaiseError}, PrintError => $$dbiParams{PrintError}, AutoCommit => $$dbiParams{AutoCommit} });
-
-#print STDERR "*** DBI::BabyConnect NEW, ENABLE_CACHING=$ENABLE_CACHING  PERSISTENT_OBJECT_ENABLED=$PERSISTENT_OBJECT_ENABLED  ", caller, "\n";
-
-#my $dbi_connect_method = ($DBI::BabyConnect::connect_via eq "Apache::BabyConnect::connect")
-#	? 'Apache::BabyConnect::connect' : 'connect_cached';
-#use Apache::BabyConnect;
-#if ($DBI::BabyConnect::connect_via eq "Apache::BabyConnect::connect") {
-#	##return $dbi_connect_method($conf,%args);
-#	foreach my $cn (keys %CACHED_CONN) {
-#		if ($cn eq $conf) { 
-#			print STDERR "******************** FOUND A CACHED CONNECTION FOR: $cn\n"; 
-#			return $CACHED_CONN{$conf};
-#		}
-#	}
-#}
-if ($ENABLE_CACHING) {
-	my $s1 = $$ . $conf;
-	foreach (keys %CACHED_CONN) {
-		#print STDERR "[$s1] iCOMPARE\n[$_]\n\n";
-		if ($s1 eq $_) {
-			#print STDERR "******************** FOUND A CACHED CONNECTION FOR: $conf\n";
-#			print STDERR "******************** FOUND A CACHED CONNECTION FOR: $$ with DESCRIPTOR ${$$statCC{$$ . $conf}}{descriptor}\n";
-			_statCC($$,$conf);
-			#return $CACHED_CONN{$conf};
-			return $CACHED_CONN{$$ . $conf};
-		}
-	}
-}
-#print STDERR " ********************************************************************************************** MAKING NEW CONNECTION FOR $conf\n";
 
 
 	my $dbiconnection = DBI->connect(
@@ -488,12 +473,12 @@ Make sure that the aimed SQL server is up and running.
 		# a filter as an anonymous sub (e.g. character filtering,
 		# email notification, even a new connection, and much more).
 		# TODO have the filter code settable from the global configuration file
-		$self->{in_filter} = $args{in} || \&_no_filter,
-		$self->{out_filter} = $args{out} || \&_no_filter,
+	#	$self->{in_filter} = $args{in} || \&_no_filter,
+	#	$self->{out_filter} = $args{out} || \&_no_filter,
 	}
 }
 
-	$ENABLE_CACHING && ($CACHED_CONN{$$ . $conf} = $self) && (_statCCreset($$,$conf));
+	$ENABLE_CACHING && (${$CACHED_CONN{$$ . $conf}}{class} = $self) && (_statCCreset($$,$conf));
 	return $self;
 }
 
@@ -514,12 +499,16 @@ sub HookTracing {
 		#$class->{debhook} = (defined(%h)) ? DBI::BabyConnect::Deb->new(file=>"$deb",%h) : DBI::BabyConnect::Deb->new(file=>"$deb");
 		$class->{debhook} = %h ? DBI::BabyConnect::Deb->new(file=>"$deb",%h) : DBI::BabyConnect::Deb->new(file=>"$deb");
 		$class->{tracing} = 1;
+		# in case we call reconnect()
+		$class->{_debfilename} = $deb;
 		my $time = iso_date();
 		if ($level) {
 			my $dbilog = $deb;
 			$dbilog =~ s/>{1,}//;
 			DBI->trace( $level , "$dbilog");
 			$class->{debhook}->print("Started at $time (with DBI trace level set to [$level]\n\n");
+			# in case we call reconnect()
+			$class->{_tracelevel} = $level;
 		}
 		else {
 			$class->{debhook}->print("Started at $time (without DBI trace level)\n\n");
@@ -536,7 +525,7 @@ sub HookTracing {
 sub HookError {
 	my($class) = shift;
 	my($errlog) = shift;
-	my($level) = shift;
+#	my($level) = shift;
 
 	#my(%h) = @_;
 	my %h; # filter disabled
@@ -554,16 +543,21 @@ sub HookError {
 #		}
 		my $time = iso_date();
 		print STDERR "Started at $time\n";
+		# in case we call reconnect()
+		$class->{_errfilename} = $errlog;
 	}
 	else {
 		$class->{redirect_error_log} = 0;
 	}
 }
 
+
+##############################################################################
 ##############################################################################
 ##############################################################################
 ##############################################################################
 
+#EXPERIMENTAL
 ##############################################################################
 # a DBI::BabyConnect object cache its connection parameter within its object,
 # and calling the reconnect() method establishes the connection seemlessly with
@@ -608,10 +602,13 @@ sub reconnect {
 		#OK: $class->{out_filter} = $args{out} || \&_no_filter,
 	}
 
-	#Re-hook
+	# Re-hook in case HookTracing() HookError() have been called on the previous
+	# object, and prior to calling reconnect()
+	
 ###my $ccc = [caller]; print " @{$ccc} \n";
-###print ">>>>>>>>>>>>>>>>>>>> $class->{__debfilename} ++ $class->{__deblevel} ========= $dbPassword == $class->{_CONF} \n"; exit;
-#	$class->HookTracing($class->{__debfilename},$class->{__deblevel});
+###print ">>>>>>>>>>>>>>>>>>>> $class->{_debfilename} ++ $class->{_tracelevel} ========= $dbPassword == $class->{_CONF} \n"; exit;
+	$class->HookTracing($class->{_debfilename},$class->{_tracelevel});
+	$class->HookError($class->{_errfilename});
 	#$class->{tracing} = $class->{tracing};
 
 	# Tracing
@@ -621,7 +618,10 @@ sub reconnect {
 	return $class;
 }
 
-
+# CONNECTION ATTRIBUTES FUNCTIONS
+##############################################################################
+##############################################################################
+##############################################################################
 ##############################################################################
 
 # *getHandleFlags
@@ -770,6 +770,15 @@ sub status {
 sub dbierror {
 	my $class = shift;
 	return "DBI ERROR No:", $DBI::err , " -- " ,  $DBI::errstr;
+}
+
+sub babyconfess {
+	my $class = shift;
+	eval { confess('') };
+	my @stack = split m/\n/, $@;
+	shift @stack for 1..3;
+	my $stack = join "\n", @stack;
+	return "$stack\n\n";
 }
 
 
@@ -1053,7 +1062,7 @@ sub _confFromObject {
 	my $class = shift;
 	my $conf = shift;
 
-	# %$dbiParams are already set to default, but will be overriden from config file
+	# %$dbiParams are already set to default, but will be overridden from config file
 	##foreach my $k (keys %$dbiDefaultParams) {
 	##	$$dbiParams{$k} = $$dbiDefaultParams{$k};
 	##}
@@ -1076,18 +1085,6 @@ sub _confFromObject {
 		${$class->{_CONF}}{$k} = $$dbiLags{$k};
 	}
 
-	#$Driver = $$conf{Driver};
-	#$Server = $$conf{Server};
-	# ...
-
-	# set'em in the class
-	#foreach my $k (keys %$conf) {
-	#	${$class->{_CONF}}{$k} = $$dbiParams{$k};
-	#}
-
-	#${$class->{_CONF}}{Driver} = $Driver;
-	#${$class->{_CONF}}{Server} = $Server;
-	# ...
 }
 
 
@@ -1203,7 +1200,7 @@ sub _tracingE {
 #
 
 # recreateTable() drops (silently) the table first, then it will recreate the table.
-#   the table dll is found in the $BABYCONNECT/SQL/TABLES
+#   the table dll is found in the $ENV{BABYCONNECT}/SQL/TABLES
 sub recreateTable {
 my $class=shift;
 my $SCHEMA_TABLENAME = shift;
@@ -1649,7 +1646,7 @@ sub sqlRawbnd {
 # http://www.physiol.ox.ac.uk/Computing/Online_Documentation/DBI.html
 # http://www.easysoft.com/developer/languages/perl/dbi-debugging.html
 #use DBD::Oracle qw(:ora_types);
-#sub insertbnd {
+#*insertbnd 
 sub sqlbnd {
 	my $class = shift;
 	# start with a good state upon each entry
@@ -2110,16 +2107,18 @@ sub do {
 	#my $rr = $class->{connection}->do( $q, $second, @p );
 
 	###if ($class->{connection}->do( $q, @_ ) && ! $DBI::err ) {
-	my $rr = $class->{connection}->do( $q, @_ );
+	my $rr_do = $class->{connection}->do( $q, @_ );
 	# turn old mule "0E0" into plain 0; otherwise number of afftected columns; otherwise undef for false
-	$rr = $rr eq '0E0' ? 0 : $rr ? $rr : undef; # turn "0E0" into plain 0
+
+	# turn "0E0" into 0
+	my $rr = defined $rr_do && $rr_do eq '0E0' ? 0 : $rr_do ? $rr_do : undef;
 
 	#TODO: need to benchmark the do() and see if the following assertions may cause a slow down in
 	# a long do() harness
 	# Add DOCUMENTATION in POD: Warn the user of the behavior of DROP (also used in recreateTable),
 	#
 	#whenever raiseerror is 0, for a DROP sttm force the return result $rr to 0, so we do not exit
-	#because dropping a non-existant table will return undef
+	#because dropping a non-existent table will return undef
 	($class->raiseerror == 0) && (!defined $rr) && ($q =~ /^\s*drop\s+/i) && ($rr = 0);
 		
 	if (defined $rr) {
@@ -2141,7 +2140,7 @@ sub do {
 		return $rr;
 	}
 	else {
-		$class-> _tracingE("DO: FAILED WITH RR=$rr\nERROR in DBI !\n\t DBI FAILED ON:\t$DBI::err\n\t DBI REASON:\t$DBI::errstr\n\t DBI LED:\t$DBI::state\n\n");
+		$class-> _tracingE("DO: FAILED\nERROR in DBI !\n\t DBI FAILED ON:\t$DBI::err\n\t DBI REASON:\t$DBI::errstr\n\t DBI LED:\t$DBI::state\n\n");
 
 		# explicit rollback and disconnect
 		$class-> autorollback && $class-> _traceln("<-++ rollback AUTOROLLBACK is set to 1, ALAS ROLLING-BACK\n\n");
@@ -2515,7 +2514,7 @@ sub fetchQdaO {
 			#return 1;
 		}
 		else {
-			print "Eeeeeeeeeeeeeeeeeempttttttttttyyyyyyyyyyy\n";
+			#print "Eeeeeeeeeeeeeeeeeempttttttttttyyyyyyyyyyy\n";
 			return $hrf;
 			#return 0;
 		}
@@ -3359,6 +3358,51 @@ $caconn
 	return $info;
 }
 
+sub htmlStatCC {
+#my $caconn = shift;
+	my $class = shift;
+
+	foreach my $caconn (keys %$statCC) {
+		#my $elapse = sprintf("%.2f", Time::HiRes::tv_interval(${$$statCC{$caconn}}{starttime}));
+		${$$statCC{$caconn}}{clock1} = Time::HiRes::clock();
+		#my $clock = ${$$statCC{$caconn}}{clock1} - ${$$statCC{$caconn}}{clock0};
+		${$$statCC{$caconn}}{clock} = ${$$statCC{$caconn}}{clock1} - ${$$statCC{$caconn}}{clock0};
+
+		#my ${$$statCC{$caconn}}{hires1} = [Time::HiRes::gettimeofday];
+		#my $elapse = sprintf("%.2f", Time::HiRes::tv_interval(${$$statCC{$caconn}}{hires0}));
+		${$$statCC{$caconn}}{elapse} = sprintf("%.2f", Time::HiRes::tv_interval(${$$statCC{$caconn}}{hires0}));
+	}
+
+
+print "
+
+The table below shows the cached connection of this http server process. The columns designation<br>
+summary is as follow:
+<ul>
+	<li><b>id</b> -- unique ID of the connection object formed of kernel process ID + database descriptor</li>
+	<li><b>kprocess</b> -- kernel process ID</li>
+	<li><b>counter</b> -- number of times the DBI::BabyObject has been requested</li>
+	<li><b>starttime</b> -- start time is ISO date format</li>
+	<li><b>elapse</b> -- number of seconds since the DBI::BabyObject object has been created</li>
+	<li><b>clock</b> -- system+user system time consumed by the specified cached DBI::BabyObject object</li>
+</ul>
+
+<table>
+
+";
+my @fields = qw(id kprocess counter starttime elapse clock);
+print '<tr bgcolor="grey">' , map("<th>$_</th>", @fields) , "</tr>";
+shift @fields;
+
+foreach my $caconn (keys %$statCC) {
+	print "<tr><td>$caconn</td>", map("<td>${$$statCC{$caconn}}{$_}</td>",@fields) , "</tr>";
+}
+
+print "</table>";
+
+}
+
+
 
 sub iso_date {
 	my $date = (localtime->year() + 1900).'-'._two_digit(localtime->mon() + 1).'-'._two_digit(localtime->mday());
@@ -3451,9 +3495,11 @@ elapse: ". $elap."
 ########################################################################################
 ########################################################################################
 ########################################################################################
-sub getTableSpec {
+sub snapTableDescription {
 	my $class = shift;
 	my $table = shift;
+
+	return unless ($class-> dbdriver =~ /Mysql/i);
 
 	#my $tabinfo = $class->{connection}->table_info();
 
@@ -3471,7 +3517,7 @@ $cursor->finish();
 #$cursor->finish();
 
 	$class->{src} = [caller]; push(@{$class->{src}},(caller 1)[3] || '');
-	$class->_tracingB("(getTableSpec) RETRIEVE TABLE DESCRIPTION FOR $table:\n\tTABLE $info\n\n");
+	$class->_tracingB("(snapTableDescription) RETRIEVE TABLE DESCRIPTION FOR $table:\n\tTABLE $info\n\n");
 	$class->_tracingE("\n");
 
 	return $info;
@@ -3479,8 +3525,10 @@ $cursor->finish();
 
 ########################################################################################
 
-sub getsnapshot_tablesInfo {
+sub snapTablesInfo {
 	my $class = shift;
+
+	return unless ($class-> dbdriver =~ /Mysql/i);
 
 	my $tabinfo = $class->{connection}->table_info();
 
@@ -3497,7 +3545,7 @@ sub getsnapshot_tablesInfo {
 	}
 
 	$class->{src} = [caller]; push(@{$class->{src}},(caller 1)[3] || '');
-	$class->_tracingB("(getsnapshot_tablesInfo) RETRIEVE ALL TABLES INFO:\n\tTABLE $info\n\n");
+	$class->_tracingB("(snapTablesInfo) RETRIEVE ALL TABLES INFO:\n\tTABLE $info\n\n");
 	$class->_tracingE("");
 
 	return $info;
@@ -3554,9 +3602,12 @@ sub _inverse_hash
 
 ########################################################################################
 
-sub getsnapshot_tableMetadata {
+sub snapTableMetadata {
 	my $class = shift;
 	my $table =  shift;
+
+	return unless ($class-> dbdriver =~ /Mysql/i);
+
 	my $info = "\nMETADATA FOR TABLE $table\n\n";
 	$info  .= "ATTRIBUTE NAME               TYPE              PREC  SCALE NULLABLE\n";
 	$info .=  "============================ ================= ===== ===== ========\n";
@@ -3581,7 +3632,7 @@ sub getsnapshot_tableMetadata {
 	$cursor->finish();
 
 	$class->{src} = [caller]; push(@{$class->{src}},(caller 1)[3] || '');
-	$class-> _tracingB("(getsnapshot_tableMetadata) RETRIEVE TABLE META DATA FOR:\n\tTABLE $table\n\n");
+	$class-> _tracingB("(snapTableMetadata) RETRIEVE TABLE META DATA FOR:\n\tTABLE $table\n\n");
 	$class-> _tracingE("");
 
 	return $info;
@@ -3590,7 +3641,7 @@ sub getsnapshot_tableMetadata {
 ########################################################################################
 # To retrieve the meta data of a table info
 
-sub getstruct_tableMetadata {
+sub strucTableMetadata {
 	my $class = shift;
 	my $table =  shift;
 	my @TI;
@@ -3622,6 +3673,11 @@ sub getstruct_tableMetadata {
 
 ########################################################################################
 ########################################################################################
+# TODO: move this function from OraPool.
+#oraDBMS_getDLL
+#C<oraDBMS_getDLL()> works only with Oracle. This method uses Oracle DBMS to
+#get the DLL of a specific table.
+#
 #*oraDBMS=\&oraDBMS_getDLL;
 #*dbms=\&oraDBMS_getDLL;
 sub oraDBMS_getDLL {
@@ -3671,8 +3727,8 @@ sub oraDBMS_getDLL {
 #
 # schema1.txt
 
-
-sub dbstatus {
+#*dbstatus {
+sub dbschema {
 	my $class = shift;
 
 	#TODO: die unless $dbb eq 'mysql' ... CHECK AS WELL THE VERSION!
@@ -3785,6 +3841,326 @@ my @infsch_columns = qw(
 
 	die "ConnectionManager > getInfoSchema IS NOT IMPLEMENTED!\n";
 }
+########################################################################################
+########################################################################################
+########################################################################################
+########################################################################################
+sub textFormattedAO {
+my $class = shift;
+my $ah = shift;
+my $_titlen = shift;
+my $labmap = @_ ? shift : undef;
+
+my @_titlen = $_titlen ? @$_titlen : ();
+#my @_titlen = @$_titlen;
+my $titlen = \@_titlen;
+
+	# to keep order and for any reason nothing is given, then ...
+	my @realmap;
+	my @reallen;
+	foreach my $k (sort keys %{$$ah[0]}) {
+		push(@realmap,$k);
+		my $len = 18;
+		push(@reallen,$len);
+	}
+
+my @titmap;
+my @titlen;
+while (my($tit,$len)=splice @$titlen, 0, 2) {
+	push(@titmap,$tit);
+	push(@titlen,$len);
+}
+# If for any reason nothing is given, then ...
+if (!@titmap) { @titmap=@realmap; @titlen=@reallen; }
+
+my @labmap = $labmap ? map($$labmap{ $titmap[$_] },(0..@titmap)) : @titmap;
+
+my @sprt;
+my $underline = '';
+my $info = "\n\n";
+for (my $i=0; $i< @titmap; $i++) {
+	# my $tit = $titmap[$i];
+	my $tit = $labmap[$i];
+	my $len = $titlen[$i];
+	my $clab = (length($tit) <= $len) ? $tit : substr $tit,0,$len;
+	$info .= $clab;
+	my $hump = $len - length($tit) + 1;
+	$info .= ' ' x $hump;
+	$underline .= '*' x $len;
+	$underline .= ' ';
+	push(@sprt, "%-" . $len . 's');
+}
+$info .= "\n";
+$info .= $underline;
+$info .= "\n";
+#	$info .= "Processorid             Author                   Prss Type\n";
+#	$info .= "**********************  *********************  ****************\n";
+
+	#my @a = qw(processorid author prsstype);
+	#my @a = @$titmap;
+	#my $ah = $prrg->listProcessors();
+	#my $count = @$ah;
+	for (my $i=0; $i < @$ah; $i++) {
+	    my(@a) = @{ %{$$ah[$i]} } { @titmap };
+        #$info .= sprintf "%-22s  %-22s  %-16s \n", $processorid,$author,$prsstype;
+		for (my $i=0; $i<@a; $i++) {
+			my $sprt = $sprt[$i];
+			my $val = $a[$i];
+			#$info .= sprintf "%-22s ",$_;
+			$info .= sprintf "$sprt ",$val;
+		}
+		$info .= "\n";
+	}
+return @$ah ? $info : '';
+#print $info if @$ah;
+}
+
+
+########################################################################################
+########################################################################################
+sub datalinesFormattedAO {
+my $class = shift;
+my $ah = shift;
+my $_titlen = shift;
+my $labmap = @_ ? shift : undef;
+
+my @_titlen = $_titlen ? @$_titlen : ();
+#my @_titlen = @$_titlen;
+my $titlen = \@_titlen;
+
+my $lninfo = {
+	TITLE_LINE => '',
+	UNDERLINE => '',
+	DATA_LINES => [],
+};
+
+	# to keep order and for any reason nothing is given, then ...
+	my @realmap;
+	my @reallen;
+	foreach my $k (sort keys %{$$ah[0]}) {
+		push(@realmap,$k);
+		my $len = 18;
+		push(@reallen,$len);
+	}
+
+my @titmap;
+my @titlen;
+while (my($tit,$len)=splice @$titlen, 0, 2) {
+	push(@titmap,$tit);
+	push(@titlen,$len);
+}
+# If for any reason nothing is given, then ...
+if (!@titmap) { @titmap=@realmap; @titlen=@reallen; }
+
+my @labmap = $labmap ? map($$labmap{ $titmap[$_] },(0..@titmap)) : @titmap;
+
+my @sprt;
+my $underline = '';
+my $info = "\n\n";
+for (my $i=0; $i< @titmap; $i++) {
+	# my $tit = $titmap[$i];
+	my $tit = $labmap[$i];
+	my $len = $titlen[$i];
+	my $clab = (length($tit) <= $len) ? $tit : substr $tit,0,$len;
+	$info .= $clab;
+	my $hump = $len - length($tit) + 1;
+	$info .= ' ' x $hump;
+	$underline .= '*' x $len;
+	$underline .= ' ';
+	push(@sprt, "%-" . $len . 's');
+}
+$info .= "\n";
+$$lninfo{TITLE_LINE} = $info;
+$info .= $underline;
+$info .= "\n";
+$$lninfo{UNDERLINE} = "$underline\n";
+	#$info .= "Processorid             Author                   Prss Type\n";
+	#$info .= "**********************  *********************  ****************\n";
+
+	#my @a = qw(processorid author prsstype);
+	#my @a = @$titmap;
+	#my $ah = $prrg->listProcessors();
+	#my $count = @$ah;
+	for (my $i=0; $i < @$ah; $i++) {
+		my $ln;
+	    my(@a) = @{ %{$$ah[$i]} } { @titmap };
+		#$info .= sprintf "%-22s  %-22s  %-16s \n", $processorid,$author,$prsstype;
+		for (my $i=0; $i<@a; $i++) {
+			my $sprt = $sprt[$i];
+			my $val = $a[$i];
+			#$info .= sprintf "%-22s ",$_;
+			$info .= sprintf "$sprt ",$val;
+			$ln .= sprintf "$sprt ",$val;
+		}
+		$info .= "\n";
+		$ln .= "\n";
+		push(@{$$lninfo{DATA_LINES}},$ln);
+	}
+return @$ah ? $lninfo : undef;
+#return @$ah ? $info : '';
+#print $info if @$ah;
+}
+
+
+########################################################################################
+########################################################################################
+sub textFormattedAA {
+my $class = shift;
+my $aa = shift;
+my $_titlen = shift;
+my $labmap = @_ ? shift : undef;
+
+my @_titlen = $_titlen ? @$_titlen : ();
+#my @_titlen = @$_titlen;
+my $titlen = \@_titlen;
+
+	# to keep order and for any reason nothing is given, then ...
+	my @realmap;
+	my @reallen;
+	my $i=0;
+	my(@a) = @{ $$aa[$i] };
+	for (my $i=0; $i<@a; $i++) {
+		push(@realmap,$a[$i]);
+		my $len = 18;
+		push(@reallen,$len);
+	}
+
+my @titmap;
+my @titlen;
+while (my($tit,$len)=splice @$titlen, 0, 2) {
+	push(@titmap,$tit);
+	push(@titlen,$len);
+}
+# If for any reason nothing is given, then ...
+if (!@titmap) { @titmap=@realmap; @titlen=@reallen; }
+
+
+my @labmap = $labmap ? map($$labmap{ $titmap[$_] },(0..@titmap)) : @titmap;
+
+my @sprt;
+my $underline = '';
+my $info = "\n\n";
+for (my $i=0; $i< @titmap; $i++) {
+	# my $tit = $titmap[$i];
+	my $tit = $labmap[$i];
+	my $len = $titlen[$i];
+	my $clab = (length($tit) <= $len) ? $tit : substr $tit,0,$len;
+	$info .= $clab;
+	my $hump = $len - length($tit) + 1;
+	$info .= ' ' x $hump;
+	$underline .= '*' x $len;
+	$underline .= ' ';
+	push(@sprt, "%-" . $len . 's');
+}
+$info .= "\n";
+$info .= $underline;
+$info .= "\n";
+
+	#for (my $i=0; $i < @$aa; $i++) {
+	for (my $i=1; $i < @$aa; $i++) {
+	    #my(@a) = @{ %{$$aa[$i]} } { @titmap };
+	    my(@a) = @{ $$aa[$i] };
+		my %rec = map{$realmap[$_]=>$a[$_]}(0..@realmap);
+		my @z = @{ %rec } { @titmap };
+		#for (my $i=0; $i<@a; $i++) {
+		for (my $i=0; $i<@z; $i++) {
+			my $sprt = $sprt[$i];
+			#my $val = $a[$i];
+			my $val = $z[$i];
+			$info .= sprintf "$sprt ",$val; # "%-22s ",$_
+		}
+		$info .= "\n";
+	}
+return @$aa ? $info : '';
+}
+
+
+########################################################################################
+########################################################################################
+sub datalinesFormattedAA {
+my $class = shift;
+my $aa = shift;
+my $_titlen = shift;
+my $labmap = @_ ? shift : undef;
+
+#PERL 6!: return $class-> textFormattedAA($aa,$_titlen,$labmap) unless wanthash();
+
+
+my @_titlen = $_titlen ? @$_titlen : ();
+my $titlen = \@_titlen;
+
+my $lninfo = {
+	TITLE_LINE => '',
+	UNDERLINE => '',
+	DATA_LINES => [],
+};
+
+	# to keep order and for any reason nothing is given, then ...
+	my @realmap;
+	my @reallen;
+	my $i=0;
+	my(@a) = @{ $$aa[$i] };
+	for (my $i=0; $i<@a; $i++) {
+		push(@realmap,$a[$i]);
+		my $len = 18;
+		push(@reallen,$len);
+	}
+
+my @titmap;
+my @titlen;
+while (my($tit,$len)=splice @$titlen, 0, 2) {
+	push(@titmap,$tit);
+	push(@titlen,$len);
+}
+# If for any reason nothing is given, then ...
+if (!@titmap) { @titmap=@realmap; @titlen=@reallen; }
+
+my @labmap = $labmap ? map($$labmap{ $titmap[$_] },(0..@titmap)) : @titmap;
+
+my @sprt;
+my $underline = '';
+my $info = "\n\n";
+for (my $i=0; $i< @titmap; $i++) {
+	# my $tit = $titmap[$i];
+	my $tit = $labmap[$i];
+	my $len = $titlen[$i];
+	my $clab = (length($tit) <= $len) ? $tit : substr $tit,0,$len;
+	$info .= $clab;
+	my $hump = $len - length($tit) + 1;
+	$info .= ' ' x $hump;
+	$underline .= '*' x $len;
+	$underline .= ' ';
+	push(@sprt, "%-" . $len . 's');
+}
+$info .= "\n";
+$$lninfo{TITLE_LINE} = $info;
+$info .= $underline;
+$info .= "\n";
+$$lninfo{UNDERLINE} = "$underline\n";
+
+	#for (my $i=0; $i < @$aa; $i++) {
+	for (my $i=1; $i < @$aa; $i++) {
+		my $ln;
+	    #my(@a) = @{ %{$$aa[$i]} } { @titmap };
+	    my(@a) = @{ $$aa[$i] };
+		my %rec = map{$realmap[$_]=>$a[$_]}(0..@realmap);
+		my @z = @{ %rec } { @titmap };
+		#for (my $i=0; $i<@a; $i++) {
+		for (my $i=0; $i<@z; $i++) {
+			my $sprt = $sprt[$i];
+			#my $val = $a[$i];
+			my $val = $z[$i];
+			$info .= sprintf "$sprt ",$val; # "%-22s ",$_
+			$ln .= sprintf "$sprt ",$val;
+		}
+		$info .= "\n";
+		$ln .= "\n";
+		push(@{$$lninfo{DATA_LINES}},$ln);
+	}
+#return @$aa ? $info : '';
+return @$aa ? $lninfo : undef;
+}
+
 ########################################################################################
 ########################################################################################
 ########################################################################################
@@ -3912,7 +4288,6 @@ sub AUTOLOAD {
 # DBI::BabyConnect::BabiesPool::Stat
 #
 
-
 __END__
 
 =head1 NAME
@@ -3937,10 +4312,14 @@ DBI::BabyConnect - creates an object that holds a DBI connection to a database
   # table TABLE1 is found, then drop it first then recreate it
   $bbconn->recreateTable('TEST_TABLE.mysql','TABLE1');
 
-  # insert in table TABLE1
-  $bbconn->do('INSERT INTO TABLE1 VALUES (10,20)');
+  my $sql = qq{
+       INSERT INTO TABLE1
+       (DATASTRING,DATANUM,IMAGE,RECORDDATE_T)
+       VALUES
+       (?,?,?,SYSDATE())
+     };
+  $bbconn-> sqlbnd($sql,$dataStr,1000,$imgGif);
 
-  $bbconn->disconnect();
 
 =head1 DESCRIPTION
 
@@ -3967,39 +4346,63 @@ have knowledge about the following Perl programming topics: how to localize a va
 tie to a file handle, how to redirect IO, how to redirect Perl signals, and the meaning of exit(),
 die() and DESTROY.
 
-=head2 Nomenclature and Conventions
+=head2 NOMENCLATURE AND CONVENTIONS
 
 The following conventions are used in this document:
 
-	$bbconn       a variable that is assigned an instance of a DBI::BabyConnect object
-	BABYCONNECT   environment variable that is set to the URI where DBI::BabyConnect will find its configuration files
-	databases.pl  the file that contains descriptors, each of which describe how to connect to a database using DBI
-	globalconf.pl the file that contains settable flags that will control globally the behavior of a DBI::BabyConnect object
-	BBCO          a DBI::BabyConnect object
+  $bbconn       a variable that is assigned an instance of a DBI::BabyConnect object
+  BABYCONNECT   environment variable that is set to the URI where DBI::BabyConnect will find its configuration files
+  databases.pl  the file that contains descriptors, each of which describe how to connect to a database using DBI
+  globalconf.pl the file that contains settable flags that will control globally the behavior of a DBI::BabyConnect object
+  BBCO          a DBI::BabyConnect object
 
 =head2 Architecture of an Application using DBI::BabyConnect
 
-	+-----------------+
-	|Perl             |   +----------------+
-	|script           |   |                |---|BBCO1|--|DBI XYZ Driver|----|XYZ Engine|----|some database| 
-	|using            |---+DBI::BabyConnect|---|BBCO2|--|DBI XYZ Driver|----|XYZ Engine|----|some database| 
-	|DBI::BabyConnect |   |                |--- ...
-	|                 |   +----------------+
-	+-----------------+
+  +-----------------+
+  |Perl             |   +----------------+
+  |script           |   |                |---|BBCO1|--|DBI XYZ Driver|----|XYZ Engine|----|some database| 
+  |using            |---+DBI::BabyConnect|---|BBCO2|--|DBI XYZ Driver|----|XYZ Engine|----|some database| 
+  |DBI::BabyConnect |   |                |--- ...
+  |                 |   +----------------+
+  +-----------------+
 
-The DBI::BabyConnect defines an instance
+The DBI::BabyConnect creates an object instance to access a data source as being
+described by a database descriptor.
 
 The XYZ driver can be any driver that is loaded by DBI. The current distribution has
 been tested with MySQL and Oracle.
 
-BBCO's do not need to be using the same driver, for instance BBCO1 can be using MySQL
-driver and BBCO2 can be using an Oracle driver.
+BBCO's do not need to be using the same driver for all simultaneous connection. For instance BBCO1
+can be using MySQL driver and BBCO2 can be using an Oracle driver. Therefore, an
+application using DBI::BabyConnect should be able to access many different data sources
+from the same program.
+
+If your application needs only to read data from the database then you should be able to use
+DBI::BabyConnect to access the database concurrently by starting several processes
+with DBI::BabyConnect objects.
+
+If your application need to write to the data source, you can still use DBI::BabyConnect objects
+to write concurrently, however you need to be known what you are doing.
+
+
+=head1 GETTING STARTED
+
+The DBI::BabyConnect distribution comes with a set of sample programs to assist you in
+testing your installation. All programs are located in eg/ directory. The file eg/README
+show a roadmap on how to use the programs. You need to have MySQL installed, and you need
+to create the database BABYDB.
+
+The distribution also comes with a configuration/ directory. You need to locate the
+file configuration/dbconf/databases.pl and make the proper moditication to
+the descriptors so that you can access the databases.
 
 =head1 USAGE
 
 This class has the following methods:
 
-=head2  new( $descriptor )
+=head2  new
+
+  new( $descriptor )
 
 Given a valid database descriptor name, this method returns a DBI::BabyConnect object 
 connected to the datasource that is described by the database descriptor.
@@ -4011,14 +4414,17 @@ or a reference to the active connection.
 
 The class provides methods to alter the attributes of the active
 connection held in the object, allowing to enable or disable the exceptions raised
-by the DBI::DBD module, along with the print error, the auto commit,
+by the DBI module, along with the print error, the auto commit,
 and the rollback of transactions (that pertain to the active database
 handle).
 
 You can call C<new()> with different descriptors, hence allowing you to connect
 to multiple data sources from the same program.
 
-=head2 HookError( $filename )
+
+=head2 HookError
+
+  HookError( $filename )
 
 Given a valid instance of a DBI::BabyConnect object, this method hooks
 the STDERR filehandle to a filename.
@@ -4028,7 +4434,9 @@ use the DBI::BabyConnect or for developers who want to debug the module
 itself. DBI error messages will also be redirected to the handle
 open by the method HookError().
 
-=head2 HookTracing( $filename [,tracelevel] )
+=head2 HookTracing
+
+ HookTracing( $filename [,tracelevel] )
 
 Given a valid instance of a DBI::BabyConnect object, this method hooks
 a filehandle to a filename, and sets the trace flag
@@ -4049,7 +4457,6 @@ specify any tracelevel by setting tracelevel to 0 or by not calling
 this method HookTracing() at all.
 
 
-
 =head1 BABYCONNECT Environment Variable
 
 The module DBI::BabyConnect looks for the environment variable BABYCONNECT to
@@ -4059,17 +4466,15 @@ a global configuration file (globalconf.pl), and skeletons for SQL tables.
 
 A typical configuration tree is shown below:
 
-	configuration/
-	|-- SQL
-	|   `-- TABLES
-	|       |-- TEST_BABYCONNECT.mysql
-	|       |-- TEST_TABLE.mysql
-	|       `-- TEST_TABLE.ora
-	`-- dbconf
-	    |-- DATAWAREHOUSE_MAY2007.conf
-    	|-- DATAWAREHOUSE_JUNE2007.conf
-	    |-- databases.pl
-    	`-- globalconf.pl
+    configuration/
+    |-- SQL
+    |   `-- TABLES
+    |       |-- TEST_BABYCONNECT.mysql
+    |       |-- TEST_TABLE.mysql
+    |       `-- TEST_TABLE.ora
+    `-- dbconf
+        |-- databases.pl
+        `-- globalconf.pl
 
 
 The B<globalconf.pl> file contains global configuration parameters that affect
@@ -4081,23 +4486,23 @@ the connection to a data source. The B<databases.pl> file is explained in the
 section L<"Database Descriptors File">.
 
 Skeleton tables are located in ./configuration/SQL/TABLES/, these tables are used by
-C<DBI::BabyConnect::recreateTable> method to drop and recreate database
+C<recreateTable> method to drop and recreate database
 tables.
 
 Setting the environment variable can be achieved by exporting the environment
-variable. For instance if your configuration directory is in /opt/DBI-BabyConnect:
-	export BABYCONNECT=/opt/DBI-BabyConnect/configuration
+variable. For instance if your configuration directory is in /opt/DBI-BabyConnect-0.93:
+  export BABYCONNECT=/opt/DBI-BabyConnect-0.93/configuration
 
 In a Perl script or a Perl module, you can programmatically set the environment variable in
 the BEGIN block:
 
-	BEGIN{ $ENV{BABYCONNECT}='/opt/DBI-BabyConnect/configuration'; }
+  BEGIN{ $ENV{BABYCONNECT}='/opt/DBI-BabyConnect-0.93/configuration'; }
 
 If you are using persitent DBI::BabyConnect objects by loading the C<Apache::BabyConnect>
 module in Apache MD2, then you need to setup the variable prior to loading
 the module; the simplest way is to use the Apache configuration directive PerlSetEnv:
 
-	PerlSetEnv BABYCONNECT /opt/DBI-BabyConnect/configuration
+  PerlSetEnv BABYCONNECT /opt/DBI-BabyConnect-0.93/configuration
 
 Refer to C<Apache::BabyConnect> for more information about using DBI::BabyConnect
 persistence with Apache MD2.
@@ -4129,14 +4534,14 @@ object.
 
 Set CALLER_DISCONNECT to 1 if you want to explicitly call DBI::BabyConnect::disconnect on
 a live DBI::BabyConnect object so that you disconnect the obejct from DBI yourself.
-Whenever you call DBI::BabyConnect::disconnect or whenever the DBI::BabyConnect
+Whenever you L<"disconnect"> or whenever the DBI::BabyConnect
 object is destroyed it will check whether you have explicitly disconnected or not, and print
 to STDERR the state of your DBI::BabyConnect. It will also check if you are trying to
-disconnect on an already disconnected DBI::BabyConnect object. Such information is useful to keep you
-in control of the DBI handle.
+disconnect on an already disconnected DBI::BabyConnect object. Such information is useful to keep
+in control of the DBI handles.
 
-For simplicity, set CALLER_DISCONNECT=0, to delegate the disconnection from
-DBI to DBI::BabyConnect object.
+For simplicity, set CALLER_DISCONNECT=0, to allow automatic disconnection and delegate the
+disconnection to the DBI::BabyConnect object.
 
 =begin comment more about this
 
@@ -4170,21 +4575,26 @@ and tell the object methods to automatically rollback and exit on failure.
 
 This option is settable and will work only if AutoRollback is in effect for the
 DBI, because DBI::BabyConnect objects delegate all rollbacks to the DBI itself.
-DBI rollback is in effect if and only if:
+
+  DBI rollback is in effect if and only if:
   RaiseError is 0 (it should be off because otherwise the DBI would have exited earlier due to the error)
   AutoCommit is 0 (DBI will have no effect on rollback is AutoCommit is set to 1)
+
 DBI::BabyConnect will keep track of the success or failure of DBI execute(), hence deciding on
 what to do on failure.
-#
+
 DBI will not exit if the conditions on the rollback are not met, but it will
 continue without effectively rolling back.
-#
+
 For these DBI::BabyConnect objects that have been instantiated by loading the
 DBI::BabyConnect with PERSISTENT_OBJECT_ENABLED set to 1
-   use DBI::BabyConnect 1, 1
+
+  use DBI::BabyConnect 1, 1;
+
 this option will do a rollback but the exit() is redirected to Apache::exit() as it
 is documented by mod_perl, in which case only the perl script will exit at this point.
-Refer to perl/testbaby_rollback.pl
+See eg/perl/testrollback.pl
+
 If for any reason the HTTP child is terminated, or the CORE::exit() is called, or CORE::die()
 is called, or anything that will terminate the program and call the DESTROY of a DBI::BabyConnect
 instance, then this DESTROY will still check to see if a rollback conditions are met
@@ -4192,10 +4602,9 @@ to do an effective rollback; this is different than the behavior of other applic
 that do persistence using Apache, as the mechanism of rollback is carried externally of Apache
 handlers and is being dispatched within the DBI::BabyConnect object itself.
 
-
 =head2 DBSETTING_FORCE_SINGLESPACE_FOR_EMPTY_STRING
 
-When inserting new data, a scalar that refer to an empty string "" will normally
+When inserting new data, a scalar that refers to an empty string "" will normally
 keep the default value of the attribute in the database, i.e. NULL. You can
 set DBSETTING_FORCE_SINGLESPACE_FOR_EMPTY_STRING=1 to force the writing of
 a single space instead of keeping the default NULL.
@@ -4203,8 +4612,8 @@ a single space instead of keeping the default NULL.
 =head2 ENABLE_STATISTICS_ON_DO
 
 When ENABLE_STATISTICS_ON_DO is set to 1, a DBI::BabyConnect object maintains
-a table to hold statistics about the do()'s requested by identifying each entry
-with the query string being passed to the do() method. The programmer can
+a table to hold statistics about the L<"do">'s requested by identifying each entry
+with the query string being passed to the L<"do"> method. The programmer can
 then call get_do_stat() to get the object that hold the statistics.
 Do not enable this unless you need to collect statistics, for instance in
 data warehousing environment the queries to do() are limited in format
@@ -4259,7 +4668,7 @@ from a single program. For example, it is possible to connect concurrently from 
 program to MySQL database located on a server A, to another MySQL database located
 on server B, to an Oracle database located on server C, and so on.
 
-=head2 The database handle attributes
+=head2 Database Handle Attributes
 
 For each of the active database connection, there are six attributes
 that are defined:
@@ -4313,7 +4722,7 @@ This class contains several functions to retrieve, store, or set the attributes
 of the DBI::BabyConnect object.
 
 
-=head2 getActiveDescriptor( )
+=head2 getActiveDescriptor
 
 getActiveDescriptor() returns the information about the current DBI::BabyConnect object
 that is initialized with the specified descriptor.
@@ -4340,49 +4749,50 @@ dereferencing it. For example:
 Usually you do not need to use the method getActiveDescriptor(). This method is provided
 to experiment with multi-threaded DBI::BabyConnect objects.
 
-=head2 saveLags( )
+=head2 saveLags
 
 Given a C<DBI::BabyConnect> object, this method save the attribute flags:
 PrintError, RaiseError, AutoCommit, and AutoRollback, to a temporary object.
 
-=head2 restoreLags( )
+=head2 restoreLags
 
 Given a C<DBI::BabyConnect> object, this method restore the attribute flags:
 PrintError, RaiseError, AutoCommit, and AutoRollback, from the temporary object.
 
-=head2 resetLags( )
+=head2 resetLags
 
 Given a C<DBI::BabyConnect> object, this method reset the attribute flags:
 PrintError, RaiseError, AutoCommit, and AutoRollback, to their original values
 as they have been set at object initialization. These are the values of
-the L<"database descriptor"> used when creating the C<DBI::BabyConnect> object.
+the database descriptor used when creating the C<DBI::BabyConnect> object. See
+L<"Database Descriptors File">.
 
-=head2 connection( )
+=head2 connection
 
 Given a C<DBI::BabyConnect> object, this method returns the DBI::db handle to
 the data source to which the object is connected.
 
-=head2 dbname( )
+=head2 dbname
 
 Given a C<DBI::BabyConnect> object, this method returns the name of the
 data source to which the object is connected.
 
-=head2 dbserver( )
+=head2 dbserver
 
 Given a C<DBI::BabyConnect> object, this method returns the server
 name where the data source is located.
 
-=head2 dbdriver( )
+=head2 dbdriver
 
 Given a C<DBI::BabyConnect> object, this method returns the driver name
 being used by the object to connect to the data source.
 
-=head2 dbusername( )
+=head2 dbusername
 
 Given a C<DBI::BabyConnect> object, this method returns the username used
 to authenticate the connection to the data source.
 
-=head2 printerror( )
+=head2 printerror
 
 Given a C<DBI::BabyConnect> object, this method returns the state of the
 B<PrintError> attribute flag as it is being set to the active connection of the object. 
@@ -4394,13 +4804,13 @@ If PrintError is set to true (1) then the DBI will print warning and
 error to STDERR.
 
 Initially, when a DBI::BabyConnect object is created (using the C<new()> method),
-this flag is set to the value read from the database descriptor.
+this flag is set to the value read from the database descriptor. Refer to L<"Database Descriptors File">.
 
 The current state of the flag can also be revealed by printing the
 information string returned by C<get_handle_flags()>
 
 
-=head2 raiseerror( )
+=head2 raiseerror
 
 Given a C<DBI::BabyConnect> object, this method returns the state of the
 B<RaiseError> attribute flag as it is being set to the active connection of the object. 
@@ -4413,13 +4823,13 @@ the DBD::DBI encounter an error, that is because DBD::DBI will raise
 the error and exit.
 
 Initially, when a DBI::BabyConnect object is created (using the C<new()> method),
-this flag is set to the value read from the database descriptor.
+this flag is set to the value read from the database descriptor. Refer to L<"Database Descriptors File">.
 
 The current state of the flag can also be revealed by printing the
 information string returned by C<get_handle_flags()>
 
 
-=head2 autorollback( )
+=head2 autorollback
 
 Given a C<DBI::BabyConnect> object, this method returns the state of the
 B<AutoRollback> attribute flag as it is being set to the active connection of the object. 
@@ -4431,7 +4841,7 @@ If AutoRollback is set to true (1) then if a DBI execute fails within
 a transaction, DBI::BabyConnect rollback.
 
 Initially, when a DBI::BabyConnect object is created (using the C<new()> method),
-this flag is set to the value read from the database descriptor.
+this flag is set to the value read from the database descriptor. Refer to L<"Database Descriptors File">.
 
 Note, that the attribute AutoRollback is not one of the predefined attributes
 used by the DBI module, and its behavior is defined internally to the
@@ -4443,7 +4853,7 @@ if AutoCommit is set to true.
 The current state of the flag can also be revealed by printing the
 information string returned by C<get_handle_flags()>
 
-=head2 autocommit( )
+=head2 autocommit
 
 Given a C<DBI::BabyConnect> object, this method returns the state of the
 B<AutoCommit> attribute flag as it is being set to the active connection of the object.
@@ -4456,33 +4866,20 @@ to the database. If AutoCommit is set to true (1) then it is not possible
 to rollback, and calling the rollback() will have no effect.
 
 Initially, when a DBI::BabyConnect object is created (using the C<new()> method),
-this flag is set to the value read from the database descriptor.
+this flag is set to the value read from the database descriptor. Refer to L<"Database Descriptors File">.
 
 The current state of the flag can also be revealed by printing the
 information string returned by C<get_handle_flags()>
 
-=head2 longtruncok( )
+=head2 longtruncok
 
 Given a C<DBI::BabyConnect> object, this method returns the state of the
 B<LongTruncOk> attribute flag as it is being set to the active connection of the object.
 
-=head2 longreadlen( )
+=head2 longreadlen
 
 Given a C<DBI::BabyConnect> object, this method returns the value of the
 B<LongReadLen> attribute as it is being set to the active connection of the object.
-
-=head2 storeLags( )
-
-Store temporary the attributes of the connection.
-
-=head2 restoreLags( )
-
-Restore the attributes of the connection as they have been stored using the storeLags.
-
-=head2 resetLags( )
-
-Reset the attributes of the connection as they have been initially set by the initial
-database descriptor.
 
 =head1 Class Methods
 
@@ -4498,39 +4895,65 @@ For each DBI::BabyConnect object that has been instantiated with the C<new()> me
 of the C<DBI::BabyConnect> module, the module provides the
 following methods:
 
-=head2 recreateTable( $table_template, $table_name )
+=head2 recreateTable
+
+  recreateTable( $table_template, $table_name )
 
 Read a table template and create a table named $table_name. If the table name
-exist then it will be dropped then recreated.
+exists then drop it and recreate it. See eg/createtables.pl for an example.
 
-=for comment recreateTableFromString( )
+Note that the table template is read from one of the skeletons located in the directory $ENV{BABYCONNECT}/SQL/TABLES.
+The skeleton files are text flat files that contains SQL commands. These files use the
+tilda ~ as a seperator, and -- starting at the beginning of the line for comments.
 
-=head2 getTcount( $table, $column, $where )
+=head2 recreateTableFromString
 
-getTcount() works on a single table. Given a table name, get the count on the columns
+  recreateTableFromString( $tableStr, $table_name )
+
+recreateTableFromString() is similar to recreateTable(), except that it takes
+a table template as a string. See eg/recreateTableFromString_mysql.pl and eg/recreateTableFromString_ora.pl.
+
+=head2 getTcount
+
+  getTcount( $table, $column, $where )
+
+getTcount() takes a database table name, a specific column name, and return the count of rows
 where the $where condition is satisfied.
+
+See eg/getTcount.pl for an example.
 
 =for comment insertdumb( )
 =for comment insertrec( )
 =for comment sqlRawbnd( )
 
-=head2 sqlbnd( )
+=head2 insertrec
+
+  insertrec( $table, %rec )
+
+insertrec() is a method that simply inserts a record in a database table. The method
+takes two parameters: a table name, and a hash. The record is passed as a hash,
+and the attributes specify the values of the data to be inserted. For all data that
+is to be inserted as characters or binary, use a reference to a SCALAR. See eg/insertrec.pl
+for an example.
+
+For more constructive SQL inserts, use the method L<"sqlbnd">.
+
+=head2 sqlbnd
 
 sqlbnd() executes a SQL whose elements are specified by order and by type.
-
 
     sqlbnd( $sql, $o_bnd, $o_typ )
 
 $sql is the SQL to be executed by the method
 
-$o_bnd is a pseudo hash with the first element a hash reference that specify the order
-in which the elements will appear, and the following elements specify the ...
+$o_bnd is a pseudo hash with the first element being a hash reference that specify the order
+in which the elements will appear, and the following ordered elements specify the values of the elements.
 
-$o_typ is a hash reference that specify mapping each data element to their SQL type.
+$o_typ is a hash reference that maps each data element to its corresponding SQL type.
 If you are using MySQL, you can set $o_typ to undef, since the MySQL DBD driver knows
 how to handle the type. If you are using a different database than MySQL, such as
 Oracle, then you need to specify the proper SQL type mapping for the elements. For instance,
-when inserting a BLOB into Oracle, the SQL type for the BLOB element is 113.
+when inserting a BLOB into Oracle, the SQL type for the BLOB element is 103.
 
 Consult your driver manual for the SQL types of the driver you are using. Recall that
 a DBI::BabyConnet object is initially created with the driver that is specified by
@@ -4540,7 +4963,9 @@ the database descriptor (see L<"Database Descriptors File">).
 
 =for comment  typ_updatebnd( $table, $col, $e2Ty, $where)
 
-=head2 do( $query )
+=head2 do
+
+  do( $query )
 
  On success:
    return the number of rows affected
@@ -4551,18 +4976,12 @@ the database descriptor (see L<"Database Descriptors File">).
     will die (calling destroy) and will not return  if raiseerror=1 and autorollback=0
 
 
-=head2 spc( $o, $stproc )
+=head2 spc
+
+  spc( $o, $stproc )
 
 Calls the stored procedure $stproc whose parameters are prepared from the pseudo-hash
 passed in $o.
-
-Calls the stored procedure $stproc. The binding parameters is derived from the
-object $o, which is a pseudo-hash, such that the array of the pseudo-hash itself maintains the order
-of the elements to be passed to the stored procedure, and these elements that are initially undefinied (at entry)
-will be set with the returned values of the stored procedure (when returning).
-Returns 1 on success and 0 on failure. The pseudo-hash contains the data values
-returned by the stored procedure.
-
 
 spc method, takes a pseudo-hash as a first argument, and the
 fully specified name of a stored procedure name as the second
@@ -4572,70 +4991,220 @@ a parameter is undef, then the method will do a bind_param_inout,
 otherwise it will simply bind it as bind_param.
 On return, the method will set undefined parameters of the pseudo-hash
 to the known values returned from the stored procedure.
+Returns 1 on success and 0 on failure. The pseudo-hash contains the data values
+returned by the stored procedure.
 
 Currently, this method will call die() if it fails to execute the SQL of the stored procedure.
 
+spc() works with Oracle stored procedure, the following code shows the package
+that will dequeue messages from a persistent database queue:
 
-=head2 fetchQdaO( $qry, [,$recref] [,\@list] [,@bindparams] )
+ 
+ package DataManagement::Queue;
+ 
+ use DBI::BabyConnect;
+ 
+ # this mini sub-package only knows how to to dequeue
+ # from our persisted database queue
+ @ISA=(Queue);
+ sub new {
+     my $type = shift;
+     my $db_descriptor = shift;
+     my $_ORA_PKG  = 'PKG_DATA_MANAGEMENT';
+     my $_QTABLE     = 'TASK_QUEUE';
+ 
+     my $_bbconn =  DBI::BabyConnect->new($db_descriptor);
+     #$_bbconn->HookTracing(">>/tmp/db.log",1);
+     $_bbconn->printerror(1);
+     $_bbconn->raiseerror(0);
+     $_bbconn->autorollback(1);
+     $_bbconn->autocommit(1);
+     my $this = {
+         _bbconn => DBI::BabyConnect->new($db_descriptor),
+         _ORA_PKG  => $_ORA_PKG,
+         _QTABLE     => $_QTABLE,
+     };
+     bless $this, $type;
+ }
+ 
+ sub hasNext {
+     my $this = shift;
+     my $o = shift;
+ 
+     my $ORA_PKG = $this->{_ORA_PKG};
+     $this{_bbconn}-> spc($o,"$ORA_PKG.spc_DequeueTask") && return 1;
+     return 0;
+ }
+ sub getNext {
+     my $this = shift;
+     my $o = [ {task_key=>1,task_type=>2,task_arguments=>3}, undef,undef,undef];
+     
+     return undef unless $this-> hasNext($o);
+     if (defined $$o{tsq_param}) {
+         $this->{task_key}=$$o{task_key};
+         $this->{task_type}=$$o{task_type};
+         $this->{task_arguments}=$$o{task_arguments};
+     }
+     return $o;
+ }
+ 
+ 1;
 
- 1- the SQL query 
- 2- an optional record hash reference whose attributes will be set to the ones of the fetched record.
-   If you do not specify a hash reference, then a new hash reference is created within this method
-   to hold the result to be returned to the caller.
-   On DBI error, this method will return undef.
- 3- optional array reference to list the fields that you specified in the query. The listed elements
-   must be ordered the same way as they are listed in the query or you will end up with unpredictable
-   results. Although you will be constrained by following the order of the fields as they
-   appear in the query, this option allows a more efficient memory usage when
-   retrieving fields that consume large chunk of memory (i.e. BLOB) because it does not do mutiple
-   memory allocation or copy by value when fetching the fields, rather it assign the references
-   of the fetched data to appropriate fields of the records.
- 4- an optional list of binding params
+The package DataManagement::Queue use the Oracle stored procedure spc_DequeueTask stored
+in the package ACME_DATAWAREHOUSE.PKG_DATA_MANAGEMENT.
 
- use it when records are unique, since it returns a single (first encountered) record
- record result is in $hh or \%REC
- return 1 on success, 0 if no record is found, -1 if DBI error
+ CREATE OR REPLACE PACKAGE BODY ACME_DATAWAREHOUSE.PKG_DATA_MANAGEMENT
+	PROCEDURE spc_DequeueTask
+	(
+	task_key_out IN OUT TASK_QUEUE.TASK_KEY%TYPE,
+	task_type_out IN OUT TASK_QUEUE.TASK_TYPE%TYPE,
+	task_arguments_out IN OUT TASK_QUEUE.TASK_ARGUMENTS%TYPE
+	)
+	AS
+	PRAGMA AUTONOMOUS_TRANSACTION;
+	BEGIN
+		BEGIN
+		SELECT
+		TASK_KEY, TASK_TYPE, TASK_ARGUMENTS INTO task_key_out, task_type_out, task_arguments_out
+		FROM TASK_QUEUE
+		WHERE STATUS_CODE = 'WAITING'
+		AND ROWNUM <= 1
+		FOR UPDATE;
+		EXCEPTION WHEN NO_DATA_FOUND THEN
+		ROLLBACK;
+		END;
+
+		UPDATE TASK_QUEUE
+		SET STATUS_CD = 'INPROCESS',
+		DEQUEUED_DATE = SYSDATE
+		WHERE TASK_KEY = task_key_out;
+		COMMIT;
+	END;
+  END PKG_DATA_MANAGEMENT
+ /
 
 
-=head2 fetchQdaAA( $qry [,$aaref] [,$href] [,@bindparams] )
+The package DataManagement::Queue shows how to use spc(), but it does not include the
+detailed implementation of the database Queue in Oracle.
 
-Given an active database connection, this method takes a query
-string as an argument to fetch database and return it an a 2D
-array. The method uses the DBI prepare() method, and binds any
+=head2 fetchQdaO
+
+  fetchQdaO( $qry, ,$recref ,\@list ,@bindparams )
+
+fetchQdaO() fetches a record from the data source as specified by the SQL query, and it returns
+a single B<first encountered> record in the result. The method returns the hash reference holding
+the fetched record.
+
+fetchQdaO() takes the following 4 arguments:
+
+1- the SQL query, it can be a simple query or a join.
+
+2- an optional hash reference pointing to the record whose attributes will be set to the ones of the fetched record.
+If you do not specify a hash reference, then a new hash reference is created within this method
+to hold the result to be returned to the caller.
+On DBI error, this method will return undef.
+
+3- an optional array reference to list the fields that you specified in the query. The listed elements
+must be ordered the same way as they are listed in the query or you will end up with unpredictable
+results. Although you will be constrained by following the order of the fields as they
+appear in the query, this option allows a more efficient memory usage when
+retrieving fields that consume large chunk of memory (i.e. BLOB) because it does not do mutiple
+memory allocation or copy by value when fetching the fields, rather it assign the references
+of the fetched data to the appropriate fields of the records. You need to dereference the data
+retrieved in the record, See eg/fetchrec1.pl and eg/fetchrec2.pl.
+
+4- an optional list of binding parameters used to replace the place holder ? in the query.
+
+
+Here is a simple example:
+
+ my $rec= $bbconn-> fetchQdaO(
+      "SELECT * FROM TABLE1 WHERE DATASTRING='This is a flower ...' ",
+    );
+
+ foreach my $k (keys %$rec) {
+    print "$k -- ${$$rec{$k}}\n";
+ }
+
+Here is another example:
+
+ my $rec= $bbconn-> fetchQdaO(
+      "SELECT DATASTRING, DATANUM,BIN_SREF,RECORDDATE_T FROM TABLE1 WHERE DATASTRING='This is a flower ...' ",
+    );
+
+ foreach my $k (keys %$rec) {
+    print "$k -- ${$$rec{$k}}\n";
+ }
+
+The following example is not productive but it shows the usage of this method:
+
+  my %rec;
+  $bbconn-> fetchQdaO(
+     "SELECT a.LOOKUP,b.DATASTRING, b.DATANUM,b.BIN_SREF,a.RECORDDATE_T FROM TABLE1 a, TABLE2 b WHERE a.DATASTRING=? ",
+     \%rec,
+     ['LOOKUP','DATASTRING','DATANUM','BIN_SREF','RECORDDATE_T'],
+    'This is a flower ...',
+  );
+
+  print "${$rec{DATASTRING}}\n";
+  print "${$rec{RECORDDATE_T}}\n";
+
+
+=head2 fetchQdaAA
+
+ fetchQdaAA( $qry ,$aaref ,$href ,@bindparams )
+
+Given a DBI::BabyConnect object, this method takes a query
+string as an argument to fetch data from the database and return
+the data in an array of array, that is into a 2D array.
+The method uses the DBI prepare() method, and binds any
 parameters if provided in the method argument, then DBI execute()
 the query, and finally fetch the data by iterating through
 the DBI cursor fetchrow_arrayref.
 
-The $extra_href is optional and is a reference to a struc that
-holds two attributes: B<max_rows> and B<INCLUDE_HEADER>.
+fetchQdaAA() takes four parameters in the following order:
 
-
-fetchQdaAA() is given a SQL query to return data into an array of array, that is
-into a 2D array.
-
-fetchQdaAA() takes four parameters in that order:
     1- the SQL query
     2- an optional array reference to hold the returned fetched records
-    3- an optional hash reference to specify the following INCLUDE_HEADER, MAX_ROWS (default to 1, everything)
+    3- an optional hash reference to specify the following INCLUDE_HEADER, MAX_ROWS
     4- an optional list of binding params
 
+The $href is optional and is a reference to a hash that
+holds two attributes: MAX_ROWS and INCLUDE_HEADER. MAX_ROWS enforces a maximum
+number of the rows to be fetched, and if you want to fetch everything 
+just do not specify it. INCLUDE_HEADER if set to true then the first row
+of the returned data is a header that contains the attribute names. To omit
+the header just specify nothing or set INCLUDE_HEADER to 0. If you want to
+view the retrieved data, you can use the formatting methods. See L<Formatter Functions>.
+However for any of the formatting methods to work properly you need to include
+the header.
 
+In this example C<fetchQdaAA> returns the $rows:
 
     my $qry = qq{SELECT * FROM FR_XDRTABLE1 WHERE ID < ? AND FLD1 = ? };
     my $rows = $dbhandle-> fetchQdaAA($qry, {INCLUDE_HEADER=>1,MAX_ROWS=>10});
     my $rows = $dbhandle-> fetchQdaAA($qry,14,'u4_1');
 
+In this example we pass the $rows to C<fetchQdaAA>:
 
     # define an array ref, fill it in and expand it
-    my $rows=[]; # important to mark it as an array ref before calling below
-    $dbhandle-> fetchQdaAA($qry,$rows,{INCLUDE_HEADER=>1,MAX_ROWS=>1},14,'u4_1');
+    my $rows=[]; # must specify $rows as an array reference before calling below
+    $dbhandle-> fetchQdaAA($qry,$rows,{INCLUDE_HEADER=>1},14,'u4_1');
+
+See eg/fetchQdaAA.pl for an example.
 
 
-=head2 fetchTdaAA( $table, $selection, $where [,$aaref] [,@bindparams] )
 
-C<fetchTdaAA()> method
+=head2 fetchTdaAA
 
-    fetchTdaAA('FR_XDRTABLE1', ' * '  ,  " id < ? AND FLD1 = ? ",54,'u4_1')
+  fetchTdaAA( $table, $selection, $where ,$aaref ,@bindparams )
+
+The method fetchTdaAA() retrieves selected data from the specified database table,
+where the $where condition apply. You can specify a reference to an array of array
+to be expanded with the new data rows. The method returns a reference to the array
+that holds the final results.
+
+ fetchTdaAA() method takes the following arguments:
 
  1- table name
  2- what to select that follows the SELECT keyword
@@ -4645,14 +5214,22 @@ C<fetchTdaAA()> method
    a reference to the array that holds the final results; otherwise, it returns undef in case there is no result.
  5- binding parameters
 
-=head2 fetchTdaAO( $table, $selection, $where [,$ahref] [,$href] [,@bindparams] )
+For example to fetch data from the FR_XDRTABLE1 table where ID < 54 AND FLD1='u4_1'
+
+    my $xdr = fetchTdaAA('FR_XDRTABLE1', ' * '  ,  " ID < ? AND FLD1 = ? ",54,'u4_1')
+
+See eg/fetchTdaAA.pl for an example.
+
+=head2 fetchTdaAO
+
+  fetchTdaAO( $table, $selection, $where ,$ahref ,$href ,@bindparams )
 
 The method fetchTdaAO() retrieves object records of data using fetchrow_hashref
 
-fetchTdaAO takes the following arguments:
+ fetchTdaAO() takes the following arguments:
 
-1- the table name
-2- what to select from the table, that is what will follow the SELECT keyword. This parameter type will determine
+ 1- the table name
+ 2- what to select from the table, that is what will follow the SELECT keyword. This parameter type will determine
    the type of the array reference being returned by this method as shown below:
 
     Selection                                          Return
@@ -4662,39 +5239,48 @@ fetchTdaAO takes the following arguments:
     a hash ref: {...}                                  Array of Objects
     an array: ('ID','UID','TMD0')                      Array of Array (preserving the order)
 
-3- condition that follows the WHERE keyword
-4- An optional array reference set by the caller, allowing to expand an already allocated array
+ 3- condition that follows the WHERE keyword
+ 4- An optional array reference set by the caller, allowing to expand an already allocated array
    with the new records being selected. If no array reference
    is passed, then a new array is created within this method to hold the result. The method returns
    a reference to the array that holds the final results; otherwise, it returns undef in case there is no result.
-5- binding parameters
+ 5- binding parameters
 
+See eg/fetchTdaAO.pl for an example.
 
 =head1 Closing Functions
 
+Because DBI::BabyConnect objects are live objects that are connected to data sources, programmers
+can invoke methods to execute SQL transactions on the data sources.
+
 After you have executed a SQL transaction with a DBI::BabyConnect object, usually DBI requires
 that you end the transaction by committing if it passes, by rolling back or raising error if it
-fails, by calling finish on the DBI::db handle, and by disconnecting the handle.
+fails, by calling finish on the cursor, and by disconnecting the handle.
 
-Usually you do not need to call any of the functions aformentioned because 
+However DBI::BabyConnect objects are designed to be persisted and to be pooled
+within an application. Programmers, 
+do not need to call any of the functions aforementioned because 
 DBI::BabyConnect will do that transparently for you. You use DBI::BabyConnect so that
 you can work with an object whose connection is persisted to a data source, and
 the object will do all clean up upon object destruction.
 
-The following functions are provided so that if you chose to porte an application that
+The following functions are provided so that if you chose to port an application that
 uses DBI directly, you can easily make use of DBI::BabyConnect without making extensive changes
 to the application.
 
-=head2 commit( )
+=head2 commit
 
-Call commit on the handle open by DBI::BabyConnect object. Provided to ease portability
-of programs using DBI directly.
+Call commit() on the handle open by DBI::BabyConnect object. This method is provided to ease
+portability of programs using DBI directly.
 
-=head2 rollback( )
+=head2 rollback
 
 rollback() delegates the rollback to DBI::rollback method, except that the localization
-of variable will take place prior to calling DBI::rollback. Usually, you do not need
-to call the rollback explicitly, as it is being called from other methods (i.e. DBI::BabyConnect::do()
+of DBI variables will take place prior to calling DBI::rollback. The localization is necessary
+because DBI::BabyConnect allows you to modify the behavior of rollback during run time,
+even after you have created a DBI::BabyConnect object.
+
+Usually, you do not need to call the rollback explicitly, as it is being called from other methods (i.e. DBI::BabyConnect::do()
 or DBI::BabyConnect::sqlbnd(), etc.) whenever a DBI exeucte() fails and the rollback
 conditions are met. Refer to DBI::BabyConnect::do() and ON_FAILED_DBIEXECUTE_ROLLBACK_AND_EXIT
 settable variable for more information on how this method is being invoked.
@@ -4702,47 +5288,51 @@ settable variable for more information on how this method is being invoked.
 You can always call this method explicitly if you wish to handle the rollback from within
 your program.
 
-=head2 finish( )
+=head2 finish
 
-Call finish on the cursor held by DBI::BabyConnect object. Provided to ease portability
+Call finish() on the cursor held by DBI::BabyConnect object. Provided to ease portability
 of programs using DBI directly.
 
-=head2 disconnect( )
+=head2 disconnect
 
-Call the disconnect explicitly on a DBI::BabyConnect object, hence delegating the
+Call the disconnect() explicitly on a DBI::BabyConnect object, hence delegating the
 disconnection to DBI disconnect. You do not need to disconnet during the life time
-of a DBI::BabyConnect object, however, if you do so, then you need to C<reconnect()> 
-by calling C<DBI::BabyConnect::reconnect()> if you want to keep on using the same
+of a DBI::BabyConnect object, however, if you do so, then you need to C<reconnect> 
+by calling C<DBI::BabyConnect::reconnect> if you want to keep on using the same
 DBI::BabyConnect object.
 
 disconnect() will call DBI disconnect on the DBI::BabyConnect object. Usually you need
 to disconnect the DBI::BabyConnect object from the data source once you are done
 working with the object. Yet, you can rely on DBI::BabyConnect to do the disconnection
-upon exit or object destruction, by setting C<CALLER_DISCONNECT> to 0. Refer to L<"CALLER_DISCONNECT">.
+upon exit or object destruction, by setting C<CALLER_DISCONNECT=0>. Refer to L<"CALLER_DISCONNECT">.
 
 
 =head1 Error Functions
 
 =head2 dbierror
 
-Returns the $DBI::err as returned by the DBD::DBI for the active dbi handler.
+Returns the $DBI::err as returned by the DBI for the active handle of a DBI::BabyConnect
+object. If a DBI::BabyConnect method returns an error then you can check for the
+DBI error by calling dbierror(). For example:
 
-=head2 dbiconfess
+  $bbconn-> do($sql) || die $bbconn-> dbierror;
 
-Not implemented! (next release)
+See eg/error_do.pl and eg/error_die.pl.
 
 =head1 Statistical Functions
 
-DBI::BabyConnect can collect statistics about the cumulative run time, and the system
+DBI::BabyConnect can collect statistics about the cumulative run time and the system
 time consumed by DBI::BabyConnect objects (while accessing the data sources).
+
+The following three statistical functions collect statistics per DBI::BabyConnect object:
+get_do_stats, get_spc_stats, get_running_time
 
 The DBI::BabyConnect::getStatCC returns statistics about all DBI::BabyConnect objects
 whenever using DBI::BabyConnect with connection caching and persistence.
 
-=for comment Refer to Apache::BabyConnect for more information on using DBI::BabyConnect with Apache2 MD2.
+DBI::BabyConnect with connection caching and persistence is being used by L<Apache::BabyConnect>.
 
-There following three statistical functions collect statistics per DBI::BabyConnect object:
-get_do_stats, get_spc_stats, get_running_time
+=for comment Refer to Apache::BabyConnect for more information on using DBI::BabyConnect with Apache2 MD2.
 
 =head2 getStatCC
 
@@ -4754,15 +5344,17 @@ For example:
 will load the DBI::BabyConnect and set ENABLE_CACHING and PERSISTENT_OBJECT_ENABLED to
 true.
 
-use DBI::BabyConnect (1,1) is typically called whenever using Apache::BabyConnect or
+use DBI::BabyConnect (1,1) is typically called whenever using L<Apache::BabyConnect>, or
 whenever loading the module from a Perl script that is run under mod_perl.
 
-This method getStatCC() takes one optional argument:
+ The method getStatCC() takes one optional argument:
  - if you do not pass any argument, then this method will return a string containing the statistics collected on all open handles
  - if you pass a hash reference as the first argument then the statistics table is copied to this hash reference
    and the method will also return the reference to that hash
  - if you pass anything else (as a string), then the method will return a hash reference containing the statistics collected
    on the cached descriptor that matches that string.
+
+See eg/perl/statcc.pl for an example.
 
 =head2 get_running_time
 
@@ -4775,10 +5367,23 @@ cumulative-system-time represents the system+user time used by the DBI::BabyConn
 added-system-time represents the system+user time slices added per each DBI method call, and they hould add up to be close to cumulative-system-time
 total-run-time represents the time since the DBI::BabyConnect object was instantiated
 
+=head2 htmlStatCC
+
+htmlStatCC() prints in HTML format the statistics collected on the open DBI handles owned by
+the DBI::BabyConnect objects. This function is provided so that you can quickly print the
+statistical table of all DBI::BabyConnect objects that have been cached by a specific process,
+such as the http server process, or one of its child process.
+
+The printing is in HTML format, therefore you need to use this function from a Perl script
+that is served under Apache. For an example, see any of the following scripts
+eg/perl/testbaby.pl, eg/perl/testcache.pl, or eg/perl/onemore.pl.
+
+See L<"getStatCC"> for description of this the cached statistical table of DBI::BabyConnect
+objects.
 
 =head2 get_do_stats 
 
-This method get_do_stat() takes one optional argument:
+ This method get_do_stat() takes one optional argument:
  - if you do not pass any argument, then this method will return a string containing the statistics collected
  - if you pass a hash reference as the first argument then the do()'s statistics table is copied to this hash reference
    and the method will also return the reference to that hash
@@ -4786,7 +5391,7 @@ This method get_do_stat() takes one optional argument:
    on the do() query that match that string.
 
 get_do_stat() returns the statistics collected on the do() method. You should have
-enabled to collect the statistics by seting ENABLE_STATISTICS_ON_DO to 1, otherwise
+enabled to collect the statistics by seting L<"ENABLE_STATISTICS_ON_DO"> to 1, otherwise
 the statictics table is empty.
 Before setting ENABLE_STATISTICS_ON_DO to 1, just know what you are doing otherwise
 you will imply a huge penalty on the DBI::BabyConnect object by acquiring an unecessary
@@ -4798,14 +5403,172 @@ where the do() robots are usually repetitive for the same set of queries and are
 If your do() query is taking too long, and your do() queries are limited in number, and
 you want to know how many time the same query is being called (and how much system time it is
 consuming) then enable ENABLE_STATISTICS_ON_DO, and use the method get_do_stat() to get the
-statistics of all your do()'s that have served by a DBI::BabyConnect object.
+statistics of all your do()'s that have been invoked by a DBI::BabyConnect object.
 
 =head2 get_spc_stats 
 
-Similar to L<"get_do_stats> but statistics are collected on Stored Procedures whenever
+Similar to L<"get_do_stats"> but statistics are collected on Stored Procedures whenever
 you call spc().
 
-=for comment dbstatus-section.pod
+=head1 Database Status and Schema
+
+DBI::BabyConnect provides several functions that can request meta data and schema
+information about tables that resides in the data source
+to which a DBI::BabyConnect is connected. These functions provide
+statistics about the meta data saved within the database, and about
+the schema of the database tables. While these functions should be generic and
+work with any database, currently they support only MySQL, and they have been
+tested with mysql  Ver 14.12 Distrib 5.0.27.
+
+=head2 dbschema
+
+  dbschema( $database, $tablelike )
+
+C<dbschema()> retrieves information about tables from MySQL INFORMATION_SCHEMA.TABLES,
+matching these tables that pertains to the specified $database and whose
+names are like $tablelike.
+
+Use this method with MySQL to quickly reveal inserts, updates, or any changes on
+specific tables. This method may not work with any MySQL release, but it has
+been tested with Ver 14.12 Distrib 5.0.27.
+
+For example, given the database name BABYDB, get the status of all these table names
+containing TABL in their names. See eg/dbschema.pl for an example.
+
+  print $bbconn-> dbschema('BABYDB','TABL');
+
+
+=head2 snapTablesInfo
+
+C<snapTablesInfo()> list all the tables that are defined within the database
+to which the DBI::BabyConnect object is connected. See eg/tablesinfo.pl for an example.
+
+=head2 snapTableDescription
+
+  snapTableDescription( $table )
+
+C<snapTableDescription()> returns the description of the specified table. However,
+the table should be defined within the database that the DBI::BabyConnect object 
+is connected to. See eg/tabledescription.pl for an example.
+
+=head2 snapTableMetadata
+
+  snapTableMetadata( $table )
+
+C<snapTableMetadata()> returns a string describing the meta data of a table. However,
+the table should be defined within the database that the DBI::BabyConnect object 
+is connected to. See eg/tablemeta.pl for an example.
+
+=head2 strucTableMetadata
+
+  strucTableMetadata( $table )
+
+C<strucTableMetadata()> returns a hash reference describing the meta data of a table. However,
+the table should be defined within the database that the DBI::BabyConnect object 
+is connected to. See eg/tablemeta_struc.pl for an example.
+
+
+=head1 Formatter Functions
+
+Four methods are provided within DBI::BabyConnect module to assist the
+programmer in getting a snapshot of the data retrieved from the database.
+
+B<textFormattedAO>, B<datalinesFormattedAO>, B<textFormattedAA>,
+and B<datalinesFormattedAA> are typically used to format the data that you
+have fetched using L<"fetchQdaAA">, L<"fetchTdaAO">, and L<"fetchTdaAA">.
+
+=head2 datalinesFormattedAA
+
+  datalinesFormattedAA( $rows ,$attributesList  ,attributesRenaming )
+
+C<datalinesFormattedAA()> is a text formatter method that I included in this
+module to assist you in getting a quick snapshot at what you may have
+fetched from a database.
+
+C<datalinesFormattedAA()> takes an array reference holding the data as returned by
+either L<"fetchQdaAA"> or L<"fetchTdaAA"> and returns the data formatted into text
+format.
+
+datalinesFormattedAA() takes $rows as a first argument, followed optionally
+by a list of attributes and a hash mapping to rename the attributes.
+
+datalinesFormattedAA() returns a hash reference that contains the data layout
+in text format.
+ For example, if the data layout is returned in $dataLines, then
+ - the header lines are in: $$dataLines{TITLE_LINE} and $$dataLines{UNDERLINE}
+ - and the formatted data lines are in @{$$dataLines{DATA_LINES}}
+
+If you call datalinesFormattedAA( $rows ) by passing only the $rows, then
+the method will return the formatted data of all fields found by default
+in the header (first row).
+
+You can optionally pass as a second argument an array reference that
+list the attributes to be printed. The list must be of the following format:
+C<attribute1, length1, attribute2, length2, ...> where each attribute is followed
+by the desired formatted length.
+
+The following is an example:
+ 
+ use DBI::BabyConnect;
+ 
+ my $bbconn = DBI::BabyConnect->new('BABYDB_001');
+ $bbconn-> HookError(">>/tmp/error.log");
+ $bbconn-> HookTracing(">>/tmp/db.log",1);
+ 
+ my $qry = qq{SELECT * FROM TABLE2 WHERE ID < ? };
+ 
+ # $rows is an array reference to be filled by fetchQdaAA()
+ my $rows=[];
+ 
+ # fetch data from query, and put data into $rows. Do not exceed 2000 rows
+ # and include the header.
+ if ($bbconn-> fetchQdaAA($qry,$rows,{INCLUDE_HEADER=>1,MAX_ROWS=>2000},15) ) {
+     # we will use the formatting method datalinesFormattedAA() to print the fetched data
+     my $dataLines = $bbconn-> datalinesFormattedAA(
+         $rows,
+         ['ID',6,'DATASTRING',22,'DATANUM',10],
+         {ID=>'Id', DATASTRING=>'Data', DATANUM => 'Data Number'}
+     );
+     for (my $i=0; $i<@{ $$dataLines{DATA_LINES} }; $i++) {
+         if ($i % 10 == 0) {
+             print $$dataLines{TITLE_LINE};
+             print $$dataLines{UNDERLINE};
+         }    
+         print ${$$dataLines{DATA_LINES}}[$i];
+     }
+ }
+ else {
+     print "NONE!!!!!!!!\n";
+ }
+ 
+See eg/fetchQdaAA.pl and eg/fetchTdaAA.pl for examples.
+
+=head2 textFormattedAA
+
+  textFormattedAA( $AA ,$attributesList  ,attributesRenaming )
+
+textFormattedAA() is similar to datalinesFormattedAA() but it returns a
+string containing the formatted data.
+
+See eg/etchTdaAA.pl for an example.
+
+=head2 datalinesFormattedAO
+
+  datalinesFormattedAO( $AO ,$attributesList  ,attributesRenaming )
+
+datalinesFormattedAO() is similar to datalinesFormattedAA() but it takes
+an array of hash as input. It is designed to work with L<"fetchTdaAO">.
+
+See eg/fetchTdaAO.pl for an example.
+
+=head2 textFormattedAO
+
+  textFormattedAO( $AO ,$attributesList  ,attributesRenaming )
+
+textFormattedAO() is similar to datalinesFormattedAO() but it returns a
+string containing the formatted data.
+
+See eg/fetchTdaAO.pl for an example.
 
 =head1 Logging and Tracing
 
@@ -4814,12 +5577,12 @@ during run time of the module. In addition, the filehandle can be shared with
 the C<DBI::trace()> allowing to redirect the trace output to that file.
 
 You can initialize the hook after getting the database connection
-by simply calling C<HookTracing()> in which case the tracing is
+by simply calling HookTracing() in which case the tracing is
 automatically enabled and run time information is printed to the log file.
-Refer to L<"HookTracing( $filename [,tracelevel] )">.
+Refer to L<"HookTracing">.
 
-You can redirect all STDERR output to a file by calling C<HookError()>.
-Refer to L<"HookError( $filename )">.
+You can redirect all STDERR output to a file by calling HookError().
+Refer to L<"HookError">.
 
 The hook can be ignored, and therefore no information will be logged. This is useful
 in a production environment after the DBI::BabyConnect objects have been tested,
@@ -4827,8 +5590,8 @@ you can simply comment out the hook.
 
 =head1 SUPPORT
 
-Support for this module is provided via the E<lt>bbconn@pugboat.comE<gt> email
-list. A mailing list will soon be provided at babyconnect@pugboat.com.
+Support for this module is provided via the E<lt>bbconn@pugboat.comE<gt> email.
+A mailing list will soon be provided at babyconnect@pugboat.com.
 
 =head1 AUTHOR
 
@@ -4854,7 +5617,4 @@ This module is being used by Varisphere Processing Server powering the
 web site www.youprocess.com
 
 =cut
-
-
-
 
